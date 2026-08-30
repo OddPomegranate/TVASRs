@@ -6,6 +6,7 @@ using IMAK3Z0MB1EGAEM.director;
 using IMAK3Z0MB1EGAEM.menu;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using Viking_x86.character;
 using Viking_x86.director;
 using Viking_x86.loader;
@@ -16,7 +17,21 @@ namespace Viking_x86;
 
 public class Game1 : Game
 {
+	// The game's whole rendering pipeline draws in this fixed virtual
+	// resolution (see VScroll.screenSize below) - camera scroll bounds,
+	// UI text centering, etc. all assume 1280x720. Rather than rewrite that,
+	// we let the window/backbuffer be any size and just scale+letterbox the
+	// 1280x720 output to fit it (see RecalculateScale/SpriteTools.transform).
+	private const int VirtualWidth = 1280;
+	private const int VirtualHeight = 720;
+
 	private GraphicsDeviceManager graphics;
+
+	private bool isFullscreen;
+	private int windowedWidth = VirtualWidth;
+	private int windowedHeight = VirtualHeight;
+	private bool handlingResize;
+	private KeyboardState prevKeyboard;
 
 	public static float frameTime;
 
@@ -46,11 +61,72 @@ public class Game1 : Game
 		store = new Store();
 		VScroll.screenSize = new Vector2(1280f, 720f);
 		graphics.PreferMultiSampling = false;
-		graphics.PreferredBackBufferWidth = 1280;
-		graphics.PreferredBackBufferHeight = 720;
+		graphics.PreferredBackBufferWidth = VirtualWidth;
+		graphics.PreferredBackBufferHeight = VirtualHeight;
 		graphics.SynchronizeWithVerticalRetrace = true;
+		graphics.HardwareModeSwitch = false;
 		graphics.ApplyChanges();
+
+		Window.AllowUserResizing = true;
+		Window.ClientSizeChanged += OnClientSizeChanged;
+		RecalculateScale();
+
 		base.Initialize();
+	}
+
+	private void OnClientSizeChanged(object sender, EventArgs e)
+	{
+		if (handlingResize || isFullscreen)
+		{
+			return;
+		}
+		int w = Window.ClientBounds.Width;
+		int h = Window.ClientBounds.Height;
+		if (w <= 0 || h <= 0)
+		{
+			return;
+		}
+		handlingResize = true;
+		graphics.PreferredBackBufferWidth = w;
+		graphics.PreferredBackBufferHeight = h;
+		graphics.ApplyChanges();
+		RecalculateScale();
+		handlingResize = false;
+	}
+
+	private void RecalculateScale()
+	{
+		float w = graphics.PreferredBackBufferWidth;
+		float h = graphics.PreferredBackBufferHeight;
+		float scale = Math.Min(w / VirtualWidth, h / VirtualHeight);
+		if (scale <= 0f)
+		{
+			scale = 1f;
+		}
+		float offsetX = (w - VirtualWidth * scale) / 2f;
+		float offsetY = (h - VirtualHeight * scale) / 2f;
+		SpriteTools.transform = Matrix.CreateScale(scale) * Matrix.CreateTranslation(offsetX, offsetY, 0f);
+	}
+
+	private void ToggleFullscreen()
+	{
+		isFullscreen = !isFullscreen;
+		if (isFullscreen)
+		{
+			windowedWidth = graphics.PreferredBackBufferWidth;
+			windowedHeight = graphics.PreferredBackBufferHeight;
+			DisplayMode display = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
+			graphics.PreferredBackBufferWidth = display.Width;
+			graphics.PreferredBackBufferHeight = display.Height;
+		}
+		else
+		{
+			graphics.PreferredBackBufferWidth = windowedWidth;
+			graphics.PreferredBackBufferHeight = windowedHeight;
+		}
+		graphics.IsFullScreen = isFullscreen;
+		graphics.ApplyChanges();
+		RecalculateScale();
 	}
 
 	protected override void LoadContent()
@@ -82,6 +158,18 @@ public class Game1 : Game
 		{
 			Exit();
 		}
+
+		KeyboardState keyboard = Keyboard.GetState();
+		bool altHeld = keyboard.IsKeyDown(Keys.LeftAlt) || keyboard.IsKeyDown(Keys.RightAlt);
+		bool altHeldPrev = prevKeyboard.IsKeyDown(Keys.LeftAlt) || prevKeyboard.IsKeyDown(Keys.RightAlt);
+		bool altEnterPressed = altHeld && keyboard.IsKeyDown(Keys.Enter) && !(altHeldPrev && prevKeyboard.IsKeyDown(Keys.Enter));
+		bool f11Pressed = keyboard.IsKeyDown(Keys.F11) && !prevKeyboard.IsKeyDown(Keys.F11);
+		if (altEnterPressed || f11Pressed)
+		{
+			ToggleFullscreen();
+		}
+		prevKeyboard = keyboard;
+
 		switch (GameState.state)
 		{
 		case GameState.State.Loading:
@@ -104,7 +192,7 @@ public class Game1 : Game
 
 	protected override void Draw(GameTime gameTime)
 	{
-		base.GraphicsDevice.Clear(Color.White);
+		base.GraphicsDevice.Clear(Color.Black);
 		switch (GameState.state)
 		{
 		case GameState.State.Loading:
